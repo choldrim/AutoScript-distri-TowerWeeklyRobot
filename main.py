@@ -17,6 +17,8 @@ DEFAULT_SAVE_PATH = "weeklys"
 MAX_MEMBER_IN_ONE_IMAGE = 20
 GROUP_FILTER_LIST=["总经办", "CrossOver 援兵", "江南援兵", "合作伙伴"]
 LOG_FILE = "WeeklyRobot.log"
+CONFIG_FILE = "TowerWeeklyRobot.ini" if os.path.exists("main.ini") else\
+        os.path.join(os.getenv("HOME"), ".AutoScriptConfig/TowerWeeklyRobot.ini")
 
 logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -219,7 +221,7 @@ def work():
     if ret:
         pass
 
-    logging.info("finish all work, exist.")
+    logging.info("finish all work, exit.")
 
     if not DISPLAY:
         display.stop()
@@ -228,7 +230,7 @@ def work():
 def getConfigObj():
 
     config = ConfigParser()
-    config.read("main.ini")
+    config.read(CONFIG_FILE)
     return config
 
 
