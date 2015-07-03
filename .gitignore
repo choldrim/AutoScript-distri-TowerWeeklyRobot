@@ -1,6 +1,8 @@
 # choldrim
 nohup.out
 weeklys/*
+main.ini
+*.log
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
