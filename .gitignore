@@ -1,7 +1,7 @@
 # choldrim
 nohup.out
 weeklys/*
-main.ini
+TowerWeeklyRobot.ini
 *.log
 
 # Byte-compiled / optimized / DLL files
