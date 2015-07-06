@@ -14,10 +14,10 @@ from PIL import Image
 
 DISPLAY = False
 DEFAULT_SAVE_PATH = "weeklys"
-MAX_MEMBER_IN_ONE_IMAGE = 20
+MAX_MEMBER_IN_ONE_IMAGE = 20 # the number of screenshots merged into a picture
 GROUP_FILTER_LIST=["总经办", "CrossOver 援兵", "江南援兵", "合作伙伴"]
 LOG_FILE = "WeeklyRobot.log"
-CONFIG_FILE = "TowerWeeklyRobot.ini" if os.path.exists("main.ini") else\
+CONFIG_FILE = "TowerWeeklyRobot.ini" if os.path.exists("TowerWeeklyRobot.ini") else\
         os.path.join(os.getenv("HOME"), ".AutoScriptConfig/TowerWeeklyRobot.ini")
 
 logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -51,46 +51,86 @@ def getTowerWeeklyScreenshot(username, passwd, savePath):
 
     # login
     logging.debug("login ...")
+    print ("login ... ")
+
     ret = login(browser, username, passwd)
     if not ret:
         logging.error("login fail, abort.")
         return False
 
     logging.debug("login successfully")
+    print ("login successfully")
 
     time.sleep(2)
 
     teamUrl = "https://tower.im/teams/0/members/"
     browser.get(teamUrl)
-    time.sleep(1)
+    time.sleep(2)
     browser.refresh()
+    time.sleep(2)
 
     # get all member guids
-    logging.debug("get all member guids")
+    logging.debug("collecting all member guids ...")
+    print ("collecting all member guids ...")
     memberGUIDs = getAllMemberGuids(browser)
     if len(memberGUIDs) == 0:
         logging.error("len of member guids is zero, finish.")
         return False
 
     # save members weekly screenshot
-    logging.debug("save weeklys screenshot")
-    saveMembersWeeklyScreenshot(browser, memberGUIDs, membersPath)
+    logging.debug("saving weeklys screenshot ... ")
+    print ("saving weeklys screenshot ...")
+    weeklyStatistics = saveMembersWeeklyScreenshot(browser, memberGUIDs, membersPath)
+
+    # save weekly statistics
+    statisticsFile = "%s/StatisticReport.txt" % (datePath)
+    total = len(weeklyStatistics.get("Finish", [])) \
+    + len(weeklyStatistics.get("Uncompleted", [])) \
+    + len(weeklyStatistics.get("NoPermission", []))
+    outputStr = """
+    -------- Generates by Tower Weekly Robot  %s -----
+    Total: %d
+    Finish: %d
+      %s
+    Uncompleted: %d
+      %s
+    No-Permission: %d
+      %s
+    """ % (dateStr,
+            total,
+            len(weeklyStatistics.get("Finish", [])),
+            weeklyStatistics.get("Finish", []),
+            len(weeklyStatistics.get("Uncompleted", [])),
+            weeklyStatistics.get("Uncompleted", []),
+            len(weeklyStatistics.get("NoPermission", [])),
+            weeklyStatistics.get("NoPermission", [])
+            )
+    with open(statisticsFile, "w") as fp:
+        fp.write(outputStr)
 
     # combine
     logging.debug("combine weeklys screenshot")
+    print ("combining ...")
     ret = combineImages(datePath, membersPath, MAX_MEMBER_IN_ONE_IMAGE)
     if not ret:
         logging.error("combine weeklys screenshot fail.")
         return False
 
     # zip files
-    logging.debug("zip screenshot file")
-    #zipName = "%s/%s.zip" % (savePath, dateStr)
+    logging.debug("zip screenshot files")
+    print ("zipping files ...")
     zipName = "%s/weeklys.zip" % (savePath)
     ret = zipScreenshot(datePath, zipName)
     if not ret:
         logging.error("zip screenshot file fail.")
         return False
+
+    # clean files
+    logging.debug("clean screenshot files")
+    print ("cleaning files ...")
+    cleanPaths = []
+    cleanPaths.append(datePath)
+    cleanScreenshot(cleanPaths)
 
     return True
 
@@ -142,11 +182,35 @@ def getAllMemberGuids(browser):
 
 
 def saveMembersWeeklyScreenshot(browser, memberGUIDs, membersPath):
+
+    weeklyStatistics = {}
+    finish = []
+    uncompleted = []
+    noPermission = []
+
     for guid in memberGUIDs:
         url = "https://tower.im/members/%s/weekly_reports/" % guid
         browser.get(url)
         name = browser.title.split("-")[0]
         browser.save_screenshot("%s/%s.png" % (membersPath, name))
+
+        #nickName = browser.find_element_by_class_name("nickname").text
+        nickName = browser.title.split("-")[0].strip()
+        logging.debug(nickName)
+
+        if len(browser.find_elements_by_class_name("no-permission")) > 0:
+            noPermission.append(nickName)
+        elif len(browser.find_elements_by_class_name("uncompleted")) > 0:
+            uncompleted.append(nickName)
+        else:
+            finish.append(nickName)
+
+    weeklyStatistics["NoPermission"] = noPermission
+    weeklyStatistics["Uncompleted"] = uncompleted
+    weeklyStatistics["Finish"] = finish
+
+    return weeklyStatistics
+
 
 def combineImages(savePath, subImagesDir, maxMember):
     """
@@ -208,41 +272,70 @@ def combineImages(savePath, subImagesDir, maxMember):
 def work():
 
     logging.info("start weeklys screenshot work")
+    print ("start ... ")
 
     if not DISPLAY:
+        print ("hide display ... ")
         display = Display(visible=0, size=(1366, 768))
         display.start()
 
     config = getConfigObj()
+    if config == None:
+        return False
     userName = config.get("USER", "UserName")
     userPWD = config.get("USER", "userPWD")
+
     ret = getTowerWeeklyScreenshot(userName, userPWD, DEFAULT_SAVE_PATH)
 
-    if ret:
-        pass
+    if not ret:
+        print ('Error, abort. Please check the log file "%s"' % LOG_FILE)
+        return False
 
     logging.info("finish all work, exit.")
 
     if not DISPLAY:
         display.stop()
 
+    return True
 
+
+_config = None
 def getConfigObj():
 
-    config = ConfigParser()
-    config.read(CONFIG_FILE)
-    return config
+    global _config
+    if not _config:
+        # check config file exist
+        if not os.path.exists(CONFIG_FILE):
+            print ("user configure file (TowerWeeklyRobot.ini) not found.")
+            logging.error("user configure file (TowerWeeklyRobot.ini) not found.")
+            return None
+        _config = ConfigParser()
+        _config.read(CONFIG_FILE)
+    return _config
 
 
 def zipScreenshot(zipDir, zipName):
 
     cmd = "zip -r %s %s" %(zipName, zipDir)
-    logging.debug("zip screenshot: %s " % cmd)
+
+    logging.debug("zip screenshot ... ")
+    logging.debug(cmd)
+
     ret = os.system(cmd)
 
     if ret == 0:
         return True
     return False
+
+
+def cleanScreenshot(pathList):
+
+    rmCmd = "rm -rf %s" % " ".join(pathList)
+
+    logging.debug("clean screenshot...")
+    logging.debug(rmCmd)
+
+    os.system(rmCmd)
 
 
 if __name__ == "__main__":
