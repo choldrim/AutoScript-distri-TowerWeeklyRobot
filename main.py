@@ -364,11 +364,11 @@ def saveReportFile(reportFilePath, weeklyStatistics):
     """ % (nowStr,
             total,
             len(weeklyStatistics.get("Finish", [])),
-            weeklyStatistics.get("Finish", []),
+            ", ".join(weeklyStatistics.get("Finish", [])),
             len(weeklyStatistics.get("Uncompleted", [])),
-            weeklyStatistics.get("Uncompleted", []),
+            ", ".join(weeklyStatistics.get("Uncompleted", [])),
             len(weeklyStatistics.get("NoPermission", [])),
-            weeklyStatistics.get("NoPermission", [])
+            ", ".join(weeklyStatistics.get("NoPermission", []))
             )
 
     with open(reportFilePath, "w") as fp:

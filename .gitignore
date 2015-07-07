@@ -3,6 +3,7 @@ nohup.out
 weeklys/*
 TowerWeeklyRobot.ini
 *.log
+*.LOG
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
