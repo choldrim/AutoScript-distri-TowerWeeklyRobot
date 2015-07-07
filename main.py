@@ -4,6 +4,7 @@
 import time
 import os
 import logging
+import re
 
 from configparser import ConfigParser
 from datetime import datetime
@@ -15,12 +16,14 @@ from PIL import Image
 DISPLAY = False
 DEFAULT_SAVE_PATH = "weeklys"
 MAX_MEMBER_IN_ONE_IMAGE = 20 # the number of screenshots merged into a picture
-GROUP_FILTER_LIST=["总经办", "CrossOver 援兵", "江南援兵", "合作伙伴"]
+GROUP_FILTER_LIST = ["总经办", "CrossOver 援兵", "江南援兵", "合作伙伴"] # will not count the user in this group
+EMAIL_FILTER_LIST = ["weeky_reports_robot@linuxdeepin.com"] # will not count the user in this list
 LOG_FILE = "WeeklyRobot.log"
 CONFIG_FILE = "TowerWeeklyRobot.ini" if os.path.exists("TowerWeeklyRobot.ini") else\
         os.path.join(os.getenv("HOME"), ".AutoScriptConfig/TowerWeeklyRobot.ini")
 
 logging.basicConfig(level=logging.DEBUG, filename=LOG_FILE, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 # test function
 def saveWebScreenshot(url, savePath):
@@ -58,13 +61,23 @@ def getTowerWeeklyScreenshot(username, passwd, savePath):
         logging.error("login fail, abort.")
         return False
 
-    logging.debug("login successfully")
-    print ("login successfully")
+    time.sleep(3)
 
-    time.sleep(2)
+    # check login status
+    loginRE = re.compile("https://tower.im/teams/\w+/projects/")
+    if len(loginRE.findall(browser.current_url)) > 0:
+        logging.debug("login successfully")
+        print ("login successfully")
+    else:
+        logging.error("login successfully")
+        print ("login error, url does not match.")
+        return False
 
-    teamUrl = "https://tower.im/teams/0/members/"
-    browser.get(teamUrl)
+    # get team guid
+    teamGuid = getLoginUserGuid(browser)
+
+    teamMembersUrl = "https://tower.im/teams/%s/members/" % (teamGuid)
+    browser.get(teamMembersUrl)
     time.sleep(2)
     browser.refresh()
     time.sleep(2)
@@ -82,44 +95,16 @@ def getTowerWeeklyScreenshot(username, passwd, savePath):
     print ("saving weeklys screenshot ...")
     weeklyStatistics = saveMembersWeeklyScreenshot(browser, memberGUIDs, membersPath)
 
-    # save weekly statistics
-    statisticsFile = "%s/StatisticReport.txt" % (datePath)
-    total = len(weeklyStatistics.get("Finish", [])) \
-    + len(weeklyStatistics.get("Uncompleted", [])) \
-    + len(weeklyStatistics.get("NoPermission", []))
-    outputStr = """
-    -------- Generates by Tower Weekly Robot  %s -----
-    Total: %d
-    Finish: %d
-      %s
-    Uncompleted: %d
-      %s
-    No-Permission: %d
-      %s
-    """ % (dateStr,
-            total,
-            len(weeklyStatistics.get("Finish", [])),
-            weeklyStatistics.get("Finish", []),
-            len(weeklyStatistics.get("Uncompleted", [])),
-            weeklyStatistics.get("Uncompleted", []),
-            len(weeklyStatistics.get("NoPermission", [])),
-            weeklyStatistics.get("NoPermission", [])
-            )
-    with open(statisticsFile, "w") as fp:
-        fp.write(outputStr)
-
-    # combine
-    logging.debug("combine weeklys screenshot")
-    print ("combining ...")
-    ret = combineImages(datePath, membersPath, MAX_MEMBER_IN_ONE_IMAGE)
-    if not ret:
-        logging.error("combine weeklys screenshot fail.")
-        return False
+    # save weekly report file
+    reportFile = "HtmlReport.txt"
+    reportFilePath = "%s/%s" % (savePath, reportFile)
+    saveReportFile(reportFilePath, weeklyStatistics)
 
     # zip files
     logging.debug("zip screenshot files")
     print ("zipping files ...")
-    zipName = "%s/weeklys.zip" % (savePath)
+    #zipName = "%s/weeklys.zip" % (savePath)
+    zipName = "%s/weeklys.tar.gz" % (savePath)
     ret = zipScreenshot(datePath, zipName)
     if not ret:
         logging.error("zip screenshot file fail.")
@@ -145,9 +130,20 @@ def login(browser, username, passwd):
         unEL.submit()
         return True
     else:
-        logging.error("it not login url")
+        logging.error("Login error, it not a login url")
         return False
 
+def getLoginUserGuid(browser):
+
+    url = browser.current_url
+    a = re.compile("https://tower.im/teams/(\w+)/\w+/")
+    guids = a.findall(url)
+
+    guid = ""
+    if len (guids) > 0:
+        guid = guids[0]
+
+    return guid
 
 def getAllMemberGuids(browser):
 
@@ -158,7 +154,7 @@ def getAllMemberGuids(browser):
     for g in dfGroupELs:
         memberELs = g.find_elements_by_class_name("member")
         for EL in memberELs:
-            guid = EL.get_attribute("data-guid")
+            guid = EL.get_attribute("data-guid").strip()
             memberGUIDs.append(guid)
 
     # normal groups
@@ -175,7 +171,7 @@ def getAllMemberGuids(browser):
 
         memberELs = g.find_elements_by_class_name("member")
         for EL in memberELs:
-            guid = EL.get_attribute("data-guid")
+            guid = EL.get_attribute("data-guid").strip()
             memberGUIDs.append(guid)
 
     return memberGUIDs
@@ -191,16 +187,24 @@ def saveMembersWeeklyScreenshot(browser, memberGUIDs, membersPath):
     for guid in memberGUIDs:
         url = "https://tower.im/members/%s/weekly_reports/" % guid
         browser.get(url)
-        name = browser.title.split("-")[0]
+
+        # filter users
+        emailEL = browser.find_element_by_class_name("email")
+        if emailEL.text.strip() in EMAIL_FILTER_LIST:
+            continue
+        name = browser.title.split("-")[0].strip()
         browser.save_screenshot("%s/%s.png" % (membersPath, name))
 
-        #nickName = browser.find_element_by_class_name("nickname").text
         nickName = browser.title.split("-")[0].strip()
         logging.debug(nickName)
 
+        # count the statistic info
         if len(browser.find_elements_by_class_name("no-permission")) > 0:
             noPermission.append(nickName)
         elif len(browser.find_elements_by_class_name("uncompleted")) > 0:
+            uncompleted.append(nickName)
+        # count the login user's weekly
+        elif len(browser.find_elements_by_class_name("btn-new-weekly-report")) > 0:
             uncompleted.append(nickName)
         else:
             finish.append(nickName)
@@ -316,7 +320,8 @@ def getConfigObj():
 
 def zipScreenshot(zipDir, zipName):
 
-    cmd = "zip -r %s %s" %(zipName, zipDir)
+    #cmd = "zip -r %s %s" %(zipName, zipDir)
+    cmd = "tar -jcf %s %s" % (zipName, zipDir)
 
     logging.debug("zip screenshot ... ")
     logging.debug(cmd)
@@ -336,6 +341,40 @@ def cleanScreenshot(pathList):
     logging.debug(rmCmd)
 
     os.system(rmCmd)
+
+
+def saveReportFile(reportFilePath, weeklyStatistics):
+
+    now = datetime.now()
+    nowStr = str(now).split(".")[0]
+
+    total = len(weeklyStatistics.get("Finish", [])) \
+    + len(weeklyStatistics.get("Uncompleted", [])) \
+    + len(weeklyStatistics.get("NoPermission", []))
+    outputStr = """
+    ------- Tower 周报机器人 ------- <br/>
+    截图时间：%s <p>
+    总人数: %d <p>
+    完成周报人数: %d <br/>
+      %s <p>
+    没有周报记录: %d <br/>
+      %s <p>
+    没有查看权限: %d <br/>
+      %s <p>
+    """ % (nowStr,
+            total,
+            len(weeklyStatistics.get("Finish", [])),
+            weeklyStatistics.get("Finish", []),
+            len(weeklyStatistics.get("Uncompleted", [])),
+            weeklyStatistics.get("Uncompleted", []),
+            len(weeklyStatistics.get("NoPermission", [])),
+            weeklyStatistics.get("NoPermission", [])
+            )
+
+    with open(reportFilePath, "w") as fp:
+        fp.write(outputStr)
+
+    return True
 
 
 if __name__ == "__main__":
