@@ -361,6 +361,10 @@ def saveReportFile(reportFilePath, weeklyStatistics):
       %s <p>
     没有查看权限: %d <br/>
       %s <p>
+    <p>
+    说明：因为放假和调休时间不定，因此，只要：向机器人提供了查看周报权限，并填写了一天以上周报的同学，都会被列入完成周报范围。<br/>
+    周报详细请参考截图为准。<br>
+    <p>
     """ % (nowStr,
             total,
             len(weeklyStatistics.get("Finish", [])),
